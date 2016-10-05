@@ -26,64 +26,77 @@ def matrix_to_str(np_matrix, n_rows=np.inf, n_cols=np.inf):
     return out_table
 
 
-def phase_mosaic_var(variant_id, variant_barcodes, barcodes):
+def phase_mosaic_var(variant_id, variant_barcodes):
     '''
     Performs phasing of the mosaic variant to nearby germline variants.
     Returns the number of barcodes used in the phasing, \
     the p-value of the variant as a mosaic and \
     the p-value of the variant being a false-positive.
     '''
-    n_variants = sum([x["is_germline"] for x in variant_barcodes.values()])
-    n_barcodes = len(barcodes)
     (variant_matrix, variant_index, barcode_index) = \
-        construct_germline_barcode_matrix(
-        variant_barcodes, n_variants, n_barcodes)
+        construct_germline_barcode_matrix(variant_barcodes)
+
     logging.debug("Analyzed {} variants and {} barcodes".format(
             len(variant_index), len(barcode_index)))
     logging.debug("Table is:\n{}".format(
             matrix_to_str(variant_matrix, 10000, 50)))
+
     (haplotypes, confidence, n_seen) = get_haplotypes(variant_matrix)
     skip_barcode_indices = set()
     barcode_not_seen = set()
     barcode_discordant = set()
-    for barcode_iter in range(0, n_barcodes):
+    for barcode_iter in range(0, len(haplotypes)):
         if n_seen[barcode_iter] == 0:
             barcode_not_seen.add(barcode_iter)
         elif confidence[barcode_iter] / n_seen[barcode_iter] < 0.5:
             barcode_discordant.add(barcode_iter)
+
     logging.debug("Removed {} barcodes due to discordance".format(
             len(barcode_discordant)))
     logging.debug("Removed {} barcodes due to not seen".format(
             len(barcode_not_seen)))
     skip_barcode_indices = barcode_not_seen | barcode_discordant
-    return determine_mosaicism(haplotypes, skip_barcode_indices, barcodes,
+
+    return determine_mosaicism(haplotypes, skip_barcode_indices,
                                barcode_index, variant_id, variant_barcodes)
 
 
-def construct_germline_barcode_matrix(variant_barcodes, n_variants,
-                                      n_barcodes, dtype=np.dtype("int32")):
+def construct_germline_barcode_matrix(variant_barcodes,
+                                      dtype=np.dtype("int32")):
     '''
     Construct a sparse matrix of the variants \
     supported by the barcode information.
     '''
-    variant_barcode_matrix = scipy.sparse.lil_matrix(
-            (n_variants, n_barcodes), dtype=np.dtype("int32"))
+    # Find the size of the matrix   #
+    # Index the matrix rows/columns #
     variant_index = {}
     barcode_index = {}
-    variant_index_counter = 0
-    barcode_index_counter = 0
+    variant_counter = 0
+    barcode_counter = 0
     for variant, properties in variant_barcodes.items():
         if not properties["is_germline"]:  # Skip non-het germline vars
             continue
-        variant_index[variant] = variant_index_counter
-        variant_index_counter += 1
+        variant_index[variant] = variant_counter
+        variant_counter += 1
         for allele, barcode_list in properties.items():
             if not (type(allele) is int and type(barcode_list) is list):
                 continue
             for barcode in barcode_list:
                 if barcode not in barcode_index:
-                    barcode_index[barcode] = barcode_index_counter
-                    barcode_index_counter += 1
+                    barcode_index[barcode] = barcode_counter
+                    barcode_counter += 1
+
+    variant_barcode_matrix = scipy.sparse.lil_matrix(
+            (variant_counter, barcode_counter), dtype=np.dtype("int32"))
+
+    # Populate the matrix #
+    for variant, properties in variant_barcodes.items():
+        if not properties["is_germline"]:
+            continue
+        for allele, barcode_list in properties.items():
+            if not (type(allele) is int and type(barcode_list) is list):
+                continue
+            for barcode in barcode_list:
                 variant_barcode_matrix[variant_index[variant],
                                        barcode_index[barcode]] = allele + 1
     return (variant_barcode_matrix.tocsr(), variant_index, barcode_index)
@@ -133,7 +146,7 @@ def get_haplotypes(variant_matrix):
     return (haplotypes, confidence, n_seen)
 
 
-def determine_mosaicism(haplotypes, skip_barcode_indices, barcodes2,
+def determine_mosaicism(haplotypes, skip_barcode_indices,
                         barcode_index, variant_id, variant_barcodes,
                         sequencing_error_rate=0.05):
     '''
@@ -151,7 +164,6 @@ def determine_mosaicism(haplotypes, skip_barcode_indices, barcodes2,
     '''
     phasing_evidence = np.array([[0, 0], [0, 0]])
     variant_properties = variant_barcodes[variant_id]
-    noob_dp = 0
     for allele, barcodes in variant_properties.items():
         if not (type(allele) is int and type(barcodes) is list):
             continue
@@ -164,12 +176,7 @@ def determine_mosaicism(haplotypes, skip_barcode_indices, barcodes2,
                 continue
             haplotype = haplotypes[cur_index]
             phasing_evidence[haplotype, allele] += 1
-            for var in barcodes2[barcode]:
-                if var[:-2] in variant_barcodes:
-                    if variant_barcodes[var[:-2]]["is_germline"]:
-                        noob_dp += 1
-                        found
-    logging.debug("DP should be {}".format(noob_dp))
+
     logging.debug("Constructed phasing matrix {}".format(
             str(phasing_evidence)))
 

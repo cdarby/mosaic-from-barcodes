@@ -75,14 +75,6 @@ of alleles which point to lists of barcodes supporting the alleles.
     pass
 
 
-class Barcodes(dict):
-    '''
-    Contains a dictionary of barcodes pointing to a tuple \
-of variants and the variant allele supported by the barcode.
-    '''
-    pass
-
-
 def get_args():
     '''
     Process program arguments using argparse.
@@ -146,7 +138,7 @@ def get_args():
     return parser.parse_args()
 
 
-def perform_phasing(cur_phase_var, variant_id, variant_barcodes, barcodes):
+def perform_phasing(cur_phase_var, variant_id, variant_barcodes):
     phase_chrom, phase_pos, phase_ref, phase_alt = (
             cur_phase_var[:2] + cur_phase_var[3:5])
     variant_id = ';'.join([phase_chrom, phase_pos, phase_ref, phase_alt])
@@ -155,7 +147,7 @@ def perform_phasing(cur_phase_var, variant_id, variant_barcodes, barcodes):
         return
     logging.info("Phasing the variant at {}:{}".format(phase_chrom, phase_pos))
     (depth, prob_mosaic, prob_false_positive) = (phasing.phase_mosaic_var(
-            variant_id, variant_barcodes, barcodes))
+            variant_id, variant_barcodes))
     additional_tags = []
     logging.debug("depth-{}, prob_mosaic-{}, prob_fp-{}".format(
             depth, prob_mosaic, prob_false_positive))
@@ -229,7 +221,6 @@ def main(args):
     # Data containers #
     variant_list = VariantList()
     variant_barcodes = VariantBarcodes()
-    barcodes = Barcodes()
 
     # main loop #
     header_written = False
@@ -335,10 +326,6 @@ def main(args):
                 variant_barcodes[variant_id][genotype[str(allele)]] = []
             for bc_string in cur_barcodes.split(';'):
                 barcode = bc_string.split('_')[0]  # Ignore barcode quality
-                if barcode not in barcodes:
-                    barcodes[barcode] = set()
-                barcodes[barcode].add(
-                        ';'.join([chrom, pos, ref, alt, str(allele)]))
                 variant_barcodes[variant_id][
                         genotype[str(allele)]].append(barcode)
 
@@ -347,8 +334,8 @@ def main(args):
         # Perform phasing of previous variants #
         for cur_phase_var in variant_list.next_var_to_phase(
                     line[0], line[1], args.max_phase_distance):
-            perform_phasing(cur_phase_var, variant_id,
-                            variant_barcodes, barcodes)
+            perform_phasing(cur_phase_var,
+                            variant_id, variant_barcodes)
 
         # Output previous variants #
         for out_var in variant_list.pop_past_variants(
@@ -363,22 +350,13 @@ def main(args):
                 # Skip other fields #
                 if not (type(allele) is int and type(barcode_list) is list):
                     continue
-                for barcode in barcode_list:
-                    if barcode not in barcodes:
-                        continue
-                    variant_id2 = variant_id + ';' + str(allele)
-                    if variant_id2 in barcodes[barcode]:
-                        if len(barcodes[barcode]) <= 1:
-                            del barcodes[barcode]
-                        else:
-                            barcodes[barcode].remove(variant_id2)
             del variant_barcodes[variant_id]
 
     # Final phasing #
     for cur_phase_var in variant_list.next_var_to_phase(
-            'hjsdljkljs', 100, args.max_phase_distance):
+            'END', 100, args.max_phase_distance):
         perform_phasing(cur_phase_var, variant_id,
-                        variant_barcodes, barcodes)
+                        variant_barcodes)
 
     # Final output #
     for out_var in variant_list.pop_past_variants(
