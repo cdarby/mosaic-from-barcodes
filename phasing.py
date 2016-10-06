@@ -99,7 +99,7 @@ def construct_germline_barcode_matrix(variant_barcodes,
             for barcode in barcode_list:
                 variant_barcode_matrix[variant_index[variant],
                                        barcode_index[barcode]] = allele + 1
-    return (variant_barcode_matrix.tocsr(), variant_index, barcode_index)
+    return (variant_barcode_matrix, variant_index, barcode_index)
 
 
 def get_haplotypes(variant_matrix):
