@@ -39,15 +39,15 @@ Annotate the 10x VCF with information on variants in dbSNP and 1000 Genomes.
 (zcat test/NA12878_WGS_210_phased_variants.vcf.gz | head -n 91; \
 zcat  test/NA12878_WGS_210_phased_variants.vcf.gz | tail -n +92 | sort -k1,1V -k2,2n) | \
 python3 annotate_variants.py --ref_var_name ONEKG DBSNP \
---ref_var_file test/1000G_phase3_v4_20130502.sites.vcf \
-test/dbsnp_138.b37.vcf > test/NA12878_10x_annotated.vcf
+--ref_var_file <(zcat test/1000G_phase3_v4_20130502.sites.vcf.gz) \
+<(zcat test/dbsnp_138.b37.vcf.gz) > test/NA12878_10x_annotated.vcf
 ```
 
 Identify mosaic variants from the annotated VCF.
 ```
 python3 main.py --infile test/NA12878_10x_annotated.vcf --marks_germline ONEKG \
---absent_marks_possible_mosaic DBSNP --outfile test/NA12878_mosaic5.vcf \
---ignore_filter 10X_PHASING_INCONSISTENT > test/NA12878_10x_mosaic.vcf
+--absent_marks_possible_mosaic DBSNP --outfile test/NA12878_mosaic.vcf \
+--ignore_filter 10X_PHASING_INCONSISTENT
 ```
 
 [plos-genetics]: http://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1006245
