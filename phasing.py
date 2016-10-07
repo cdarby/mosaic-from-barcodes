@@ -86,7 +86,7 @@ def construct_germline_barcode_matrix(variant_barcodes,
                     barcode_index[barcode] = barcode_counter
                     barcode_counter += 1
 
-    variant_barcode_matrix = scipy.sparse.lil_matrix(
+    variant_barcode_matrix = np.zeros(
             (variant_counter, barcode_counter), dtype=np.dtype("int32"))
 
     # Populate the matrix #
@@ -99,7 +99,7 @@ def construct_germline_barcode_matrix(variant_barcodes,
             for barcode in barcode_list:
                 variant_barcode_matrix[variant_index[variant],
                                        barcode_index[barcode]] = allele + 1
-    return (variant_barcode_matrix.toarray(), variant_index, barcode_index)
+    return (variant_barcode_matrix, variant_index, barcode_index)
 
 
 def get_haplotypes(variant_matrix):
