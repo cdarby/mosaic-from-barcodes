@@ -17,7 +17,7 @@ def matrix_to_str(np_matrix, n_rows=np.inf, n_cols=np.inf):
         n_rows = np_matrix.shape[0]
 
     out_table = ''
-    for index, v in np.ndenumerate(np_matrix[:n_rows, :n_cols].todense()):
+    for index, v in np.ndenumerate(np_matrix[:n_rows, :n_cols]):
         if index[1] == 0 and index[0] > 0:
             out_table += '\n'
         elif index[1] > 0:
@@ -38,8 +38,8 @@ def phase_mosaic_var(variant_id, variant_barcodes):
 
     logging.debug("Analyzed {} variants and {} barcodes".format(
             len(variant_index), len(barcode_index)))
-    logging.debug("Table is:\n{}".format(
-            matrix_to_str(variant_matrix, 10000, 50)))
+#    logging.debug("Table is:\n{}".format(
+#            matrix_to_str(variant_matrix, 10000, 50)))
 
     (haplotypes, confidence, n_seen) = get_haplotypes(variant_matrix)
     skip_barcode_indices = set()
@@ -99,7 +99,7 @@ def construct_germline_barcode_matrix(variant_barcodes,
             for barcode in barcode_list:
                 variant_barcode_matrix[variant_index[variant],
                                        barcode_index[barcode]] = allele + 1
-    return (variant_barcode_matrix, variant_index, barcode_index)
+    return (variant_barcode_matrix.toarray(), variant_index, barcode_index)
 
 
 def get_haplotypes(variant_matrix):
@@ -113,36 +113,41 @@ def get_haplotypes(variant_matrix):
     haplotypes = [0] * n_barcodes
     confidence = [0] * n_barcodes  # n_concordant - n_discordant
     n_seen = [0] * n_barcodes  # Total number of times barcode was seen
-    for variant_iter in range(0, variant_matrix.shape[0]):
 
-        # Flip the variant's alleles if the data is #
-        #  more consistant with the other haplotype #
+    # Iterate over the matrix rows (variants) #
+    start, stop = 0, 0
+    nonzero = variant_matrix.nonzero()
+    while stop < variant_matrix.shape[1]:
         n_discordant = 0
-        n_counted = 0
         is_flipped = False
-        for barcode_iter in range(0, n_barcodes):
-            current = variant_matrix[variant_iter, barcode_iter]
-            if current:
-                n_counted += 1
-                if current - 1 != haplotypes[barcode_iter]:
-                    n_discordant += 1
-        if n_discordant > n_counted / 2:
+        while stop < len(nonzero[0]) and nonzero[0][stop] == nonzero[0][start]:
+            stop += 1
+
+        # Check to see if we flip the variant #
+        for nonzero_idx in range(start, stop):
+            i, j = nonzero[0][nonzero_idx], nonzero[1][nonzero_idx]
+            if variant_matrix[i, j] - 1 != haplotypes[j]:
+                n_discordant += 1
+        if n_discordant > (stop - start) / 2:
             is_flipped = True
 
-        # Add the variant information to the haplotypes #
-        for barcode_iter in range(0, n_barcodes):
-            current = variant_matrix[variant_iter, barcode_iter]
-            if not current:  # barcode not represented at position
-                continue
-            n_seen[barcode_iter] += 1
-            if ((not is_flipped and haplotypes[barcode_iter] == current - 1) or
-                    (is_flipped and haplotypes[barcode_iter] != current - 1)):
-                confidence[barcode_iter] += 1
+        # Find the haplotypes #
+        for nonzero_idx in range(start, stop):
+            i, j = nonzero[0][nonzero_idx], nonzero[1][nonzero_idx]
+            current = variant_matrix[i, j]
+            n_seen[j] += 1
+            if ((not is_flipped and haplotypes[j] == current - 1) or
+                    (is_flipped and haplotypes[j] != current - 1)):
+                confidence[j] += 1
             else:
-                confidence[barcode_iter] -= 1
-                if confidence[barcode_iter] < 0:
-                    confidence[barcode_iter] = abs(confidence[barcode_iter])
-                    haplotypes[barcode_iter] = current - 1
+                confidence[j] -= 1
+                if confidence[j] < 0:
+                    confidence[j] = abs(confidence[j])
+                    haplotypes[j] = current - 1
+
+        # Prepare for the next iteration #
+        stop += 1
+        start = stop
     return (haplotypes, confidence, n_seen)
 
 
