@@ -259,8 +259,8 @@ def main(args):
         if (not args.ignore_all_filters and
                 (line[6] != 'PASS' and line[6] != '.' and
                  line[6] not in ignore_filters)):
-            logging.warning("The variant at {}:{} was skipped due to it's "
-                            "filter field - {}".format(chrom, pos, line[6]))
+            logging.info("The variant at {}:{} was skipped due to it's "
+                         "filter field - {}".format(chrom, pos, line[6]))
             variant_list.append(line)
             continue
 
