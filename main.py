@@ -312,7 +312,8 @@ def main(args):
 
         variant_id = ';'.join([chrom, pos, ref, alt])
         if variant_id in variant_barcodes:
-            raise InputError(
+            del variant_barcodes[variant_id]
+            logging.warning(
                     "The input VCF contains duplicate "
                     "records for {}:{}".format(chrom, pos))
         variant_barcodes[variant_id] = {}
