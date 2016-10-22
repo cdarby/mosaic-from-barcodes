@@ -48,7 +48,8 @@ class VariantList(list):
     def __init__(self, iterable=()):
         super().__init__(iterable)
         self.cur_phase_idx = 0
-
+    
+    # yield indicates that returns generator of the "past variants"
     def pop_past_variants(self, chrom, pos, distance):
         while (len(self) > 0 and
                (self[0][0] != chrom or
@@ -56,7 +57,7 @@ class VariantList(list):
                  int(self[0][1]) < int(pos) - distance))):
             if self.cur_phase_idx > 0:
                 self.cur_phase_idx -= 1
-            yield self.pop(0)
+            yield self.pop(0) # pop returns AND removes item at that index
 
     def next_var_to_phase(self, chrom, pos, distance):
         while (self.cur_phase_idx < len(self) and
@@ -249,6 +250,7 @@ def main(args):
             print('\t'.join(line), file=args.out_fh)
             continue
 
+        # Add a new variant: extend the "right side" of the window
         # The variant data #
         current_var_marks = dict(zip(variant_tags.keys(), [False] * 4))
         is_mosaic, is_germline = False, False
@@ -310,6 +312,7 @@ def main(args):
             continue
         genotype = {genotype[0]: 0, genotype[1]: 1}
 
+        # data structure representing a variant
         variant_id = ';'.join([chrom, pos, ref, alt])
         if variant_id in variant_barcodes:
             del variant_barcodes[variant_id]
@@ -333,12 +336,14 @@ def main(args):
         variant_list.append(line)
 
         # Perform phasing of previous variants #
+        # in the "middle" of the window
         for cur_phase_var in variant_list.next_var_to_phase(
                     line[0], line[1], args.max_phase_distance):
             perform_phasing(cur_phase_var,
                             variant_id, variant_barcodes)
 
         # Output previous variants #
+        # at the "left side" of the window, remove from variant_barcodes
         for out_var in variant_list.pop_past_variants(
                 line[0], line[1], 2 * args.max_phase_distance):
             print('\t'.join(out_var), file=args.out_fh)

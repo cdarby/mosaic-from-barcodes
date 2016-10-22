@@ -41,6 +41,7 @@ def phase_mosaic_var(variant_id, variant_barcodes):
 #    logging.debug("Table is:\n{}".format(
 #            matrix_to_str(variant_matrix, 10000, 50)))
 
+    # recalculate haplotypes of barcodes every time a variant is phased?
     (haplotypes, confidence, n_seen) = get_haplotypes(variant_matrix)
     skip_barcode_indices = set()
     barcode_not_seen = set()

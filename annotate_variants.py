@@ -45,7 +45,7 @@ def find_first_lines(*vcf_lines):
             first_idxs = [vcf_idx]
             first_chrom, first_pos = line[:2]
         elif (chroms[line[0]] == chroms[first_chrom] and
-              line[1] == first_pos):
+              line[1] == first_pos): #in case of repeat
             first_idxs.append(vcf_idx)
     return first_idxs
 
@@ -55,8 +55,8 @@ def read_next_lines(ref_fhs, ref_lines, ref_line_idx):
     Read the next VCF lines from file handles with the given indexes.
     '''
     for idx in ref_line_idx:
-        if idx < 0:  # Due to the input VCF
-            continue
+        if idx < 0:  # corresponds to the input VCF: its next line 
+            continue # gets read elsewhere
         ref_lines[idx] = ref_fhs[idx].readline().rstrip().split('\t')
         if not ref_lines[idx] or not ref_lines[idx][0]:
             ref_lines[idx] = ["END", "9999999"]
@@ -95,12 +95,14 @@ def main(args):
             str(ref_fhs)))
 
     # Get to the first data line for all VCFs #
+    # infile
     vcf_line = args.in_fh.readline().rstrip()
     while vcf_line[0] == '#':
         print(vcf_line, file=args.out_fh)
         vcf_line = args.in_fh.readline().rstrip()
     vcf_line = vcf_line.split('\t')
 
+    # other files
     ref_lines = [''] * len(ref_fhs)
     for ref_idx, ref_fh in enumerate(ref_fhs):
         ref_lines[ref_idx] = ref_fh.readline().rstrip()
@@ -111,6 +113,7 @@ def main(args):
             str(ref_lines)))
 
     # Read through VCFs and add annotations #
+    # If a variant in infile is found in ref_var_file(s), annotate it accordingly
     while vcf_line:
         logging.debug("At {}".format(
                 ','.join([str(x[0]) + ':' + str(x[1])
@@ -118,15 +121,18 @@ def main(args):
         first_line_idxs = find_first_lines(vcf_line, *ref_lines)
         logging.debug("First line indexs: {}".format(
                 str(first_line_idxs)))
-        if 0 in first_line_idxs:
+        if 0 in first_line_idxs: # 0 indicates infile
             logging.debug("Reading new vcf line")
-            for variant_idx in first_line_idxs[1:]:
+            for variant_idx in first_line_idxs[1:]: #duplicates
                 vcf_line[7] += ';' + args.ref_var_name[variant_idx - 1]
+            #print the new entry
             print('\t'.join(vcf_line), file=args.out_fh)
+            #read next line in infile
             vcf_line = args.in_fh.readline().rstrip().split('\t')
             if not vcf_line or not vcf_line[0]:
                 vcf_line = None
-        read_next_lines(ref_fhs, ref_lines, [x - 1 for x in first_line_idxs])
+        read_next_lines(ref_fhs, ref_lines, [x - 1 for x in first_line_idxs]) 
+        #get next line of VCFs that were used to annotate this line in infile
 
     if args.infile:
         args.in_fh.close()
