@@ -45,7 +45,7 @@ python3 annotate_variants.py --ref_var_name ONEKG DBSNP \
 
 Identify mosaic variants from the annotated VCF.
 ```
-python3 main.py --infile test/NA12878_10x_annotated.vcf --marks_germline ONEKG \
+python3 main.py --infile test/NA12878_10x_annotated_10000.vcf --marks_germline ONEKG \
 --absent_marks_possible_mosaic DBSNP --outfile test/NA12878_mosaic.vcf \
 --ignore_filter 10X_PHASING_INCONSISTENT
 ```
