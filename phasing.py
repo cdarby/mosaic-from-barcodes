@@ -115,6 +115,8 @@ def get_haplotypes(variant_matrix):
     confidence = [0] * n_barcodes  # n_concordant - n_discordant
     n_seen = [0] * n_barcodes  # Total number of times barcode was seen
 
+    #print(str(n_barcodes) + "," + str(variant_matrix.shape[0]))
+    
     # Iterate over the matrix rows (variants) #
     start, stop = 0, 0
     nonzero = variant_matrix.nonzero()

@@ -4,7 +4,7 @@ import sys
 import argparse
 import logging
 import re
-import phasing_DP
+import phasing
 import math
 
 log_format = "%(filename)s::%(funcName)s [%(levelname)s] %(message)s"
