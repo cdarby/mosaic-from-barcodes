@@ -40,7 +40,7 @@ def phase_mosaic_var(variant_id, variant_barcodes):
 #    logging.debug("Table is:\n{}".format(
 #            matrix_to_str(variant_matrix, 10000, 50)))
     (barcode_haplotypes, barcode_concord, variant_haplotypes, variant_concord, n_seen) = get_haplotypes_DP(variant_matrix)
-    #(haplotypes, confidence, n_seen) = get_haplotypes_DP(variant_matrix)
+    #(barcode_haplotypes, barcode_concord, n_seen) = get_haplotypes_DP(variant_matrix)
     
     skip_barcode_indices = set()
     barcode_not_seen = set()
@@ -57,9 +57,19 @@ def phase_mosaic_var(variant_id, variant_barcodes):
             len(barcode_not_seen)))
     skip_barcode_indices = barcode_not_seen | barcode_discordant
 
-    return determine_mosaicism(barcode_haplotypes, skip_barcode_indices,
+    (depth, prob_mosaic, prob_false_positive) = determine_mosaicism(barcode_haplotypes, skip_barcode_indices,
                                barcode_index, variant_id, variant_barcodes)
-
+    
+    if prob_mosaic == 0.98:
+        #print(str(barcode_concord))
+        print(str(variant_haplotypes))
+        '''
+        print("Removed {} barcodes due to discordance".format(
+            len(barcode_discordant)))
+        print("Removed {} barcodes due to not seen".format(
+            len(barcode_not_seen)))
+        '''
+    return (depth, prob_mosaic, prob_false_positive)
 
 def construct_germline_barcode_matrix(variant_barcodes,
                                       dtype=np.dtype("int32")):
@@ -118,6 +128,249 @@ def get_haplotypes_DP(variant_matrix,ploidy=2):
     else:
         return get_haplotypes_polyploid(variant_matrix,ploidy)
 
+   
+def get_haplotypes_diploid(variant_matrix):    
+    '''
+    Arguments    
+    variant_matrix: values are 0/1/2
+    rows = barcodes; columns = variants
+    
+    Return Values
+    barcode_haplotypes: values are 0/1 repr haplotypes
+    variant_haplotypes: values are 0/1 repr alleles on 
+        haplotype 0 from barcode_haplotypes
+    barcode_concord: values are counts of concordant 
+        Noticed that above, we look at concordance/num_seen < 0.5 to discard
+        so it doesn't seem right to do the add/subtract method
+    variant_concord: fraction of barcodes that are concordant
+    n_seen: number of nonzero values from each barcode
+    '''
+   
+    variant_matrix = variant_matrix.T
+    n_barcodes = variant_matrix.shape[0]
+    n_variants = variant_matrix.shape[1]
+    #print(str(n_variants) + "," + str(n_barcodes))
+    if n_variants < 1 or n_barcodes < 1:
+        return None
+    
+    #initialization values for first 2 cells (in each column of DP matrix)
+    H_yes = [1] * n_variants #represents 1's or 2's for alleles
+    C_yes = [0.0] * n_variants  # concordant barcodes
+    T_yes = [0.0] * n_variants # nonzero barcodes
+    H_no = [1] * n_variants 
+    C_no = [0.0] * n_variants  
+    T_no = [0.0] * n_variants 
+    
+    traceback = np.zeros((n_barcodes,2),dtype=np.dtype("int32")) # 0 = UP; 1 = DIAG
+    n_seen = [0] * n_barcodes
+    barcode_haplotypes = [0] * n_barcodes
+    barcode_concord = [0] * n_barcodes
+    variant_haplotypes = [0] * n_variants
+
+    curr_bc = 0
+    stop = 0
+    nonzero = variant_matrix.nonzero()
+    while stop < len(nonzero[0]):
+        #iterate through barcodes
+        
+        #case 1: this barcode isn't flipped
+        H_yes_tmp1 = H_yes[:]
+        C_yes_tmp1 = C_yes[:]
+        T_yes_tmp1 = T_yes[:]
+        H_no_tmp1 = H_no[:]
+        C_no_tmp1 = C_no[:]
+        T_no_tmp1 = T_no[:]
+        
+        #case 2: this barcode is flipped
+        H_yes_tmp2 = H_yes[:]
+        C_yes_tmp2 = C_yes[:]
+        T_yes_tmp2 = T_yes[:]
+        H_no_tmp2 = H_no[:]
+        C_no_tmp2 = C_no[:]
+        T_no_tmp2 = T_no[:]
+        
+        #net changes to concordance vector for each of the 4 cases considered
+        sum1yes = 0.0
+        sum1no = 0.0
+        sum2yes = 0.0
+        sum2no = 0.0
+        
+        while stop < len(nonzero[0]) and nonzero[0][stop] == curr_bc:
+            #iterate through variants
+            j = nonzero[1][stop] #variant index
+            n_seen[curr_bc] += 1
+            a = variant_matrix[curr_bc,j] #1 or 2 (allele)
+            
+            #increment count
+            T_yes_tmp1[j] += 1
+            T_no_tmp1[j] += 1
+            T_yes_tmp2[j] += 1
+            T_no_tmp2[j] += 1
+            
+            #compare alleles
+            #want equal-to if the barcode is not flipped
+            if a == H_yes_tmp1[j]: #both 1's or both 2's
+                C_yes_tmp1[j] += 1
+            if a == H_no_tmp1[j]:
+                C_no_tmp1[j] += 1
+            #want unequal-to if the barcode is flipped
+            if a != H_yes_tmp2[j]:
+                C_yes_tmp2[j] += 1
+            if a != H_no_tmp2[j]:
+                C_no_tmp2[j] += 1
+            
+            stop += 1    
+            
+            #haplotype for this variant changes if #concordant/#total is less than 0.5
+            if T_yes_tmp1[j] != 0 and C_yes_tmp1[j]/T_yes_tmp1[j] < 0.5:
+                C_yes_tmp1[j] = T_yes_tmp1[j] - C_yes_tmp1[j]
+                H_yes_tmp1[j] = (1 if H_yes_tmp1[j] == 2 else 2)
+            sum1yes += (C_yes_tmp1[j]/T_yes_tmp1[j] if T_yes_tmp1[j] != 0 else 0.0)
+            
+            if T_no_tmp1[j] != 0 and C_no_tmp1[j]/T_no_tmp1[j] < 0.5:
+                C_no_tmp1[j] = T_no_tmp1[j] - C_no_tmp1[j]
+                H_no_tmp1[j] = (1 if H_no_tmp1[j] == 2 else 2)
+            sum1no += (C_no_tmp1[j]/T_no_tmp1[j] if T_no_tmp1[j] != 0 else 0.0)
+            
+            if T_yes_tmp2[j] != 0 and C_yes_tmp2[j]/T_yes_tmp2[j] < 0.5:
+                C_yes_tmp2[j] = T_yes_tmp2[j] - C_yes_tmp2[j]
+                H_yes_tmp2[j] = (1 if H_yes_tmp2[j] == 2 else 2) 
+            sum2yes += (C_yes_tmp2[j]/T_yes_tmp2[j] if T_yes_tmp2[j] != 0 else 0.0)
+            
+            if T_no_tmp2[j] != 0 and C_no_tmp2[j]/T_no_tmp2[j] < 0.5:
+                C_no_tmp2[j] = T_no_tmp2[j] - C_no_tmp2[j]
+                H_no_tmp2[j] = (1 if H_no_tmp2[j] == 2 else 2) 
+            sum2no += (C_no_tmp2[j]/T_no_tmp2[j] if T_no_tmp2[j] != 0 else 0.0)
+        
+        #determine which case was better in the traceback for each cell
+        #if change from yes col to no col, it's a 1; else 0
+        
+        #case 1: not flipped
+        if sum1yes > sum1no:
+            H_no,C_no,T_no = H_yes_tmp1,C_yes_tmp1,T_yes_tmp1
+            traceback[curr_bc][0] = 1 #DIAG
+        else: 
+            H_no,C_no,T_no = H_no_tmp1,C_no_tmp1,T_no_tmp1
+            traceback[curr_bc][0] = 0 #UP
+        #case 2: flipped       
+        if sum2yes > sum2no:
+            H_yes,C_yes,T_yes = H_yes_tmp2,C_yes_tmp2,T_yes_tmp2
+            traceback[curr_bc][1] = 0 #UP
+        else:
+            H_yes,C_yes,T_yes = H_no_tmp2,C_no_tmp2,T_no_tmp2
+            traceback[curr_bc][1] = 1 #DIAG
+        
+        curr_bc += 1
+    
+    #What to choose in last row
+    yes = [C_yes[i]/T_yes[i] if T_yes[i] != 0 else 0.0 for i in range(n_variants)]
+    no = [C_no[i]/T_no[i] if T_no[i] != 0 else 0.0 for i in range(n_variants)]
+
+    if sum(yes) > sum(no):
+        variant_haplotypes = [h-1 for h in H_yes] #correct to be values 0/1
+        variant_concord = yes
+        barcode_haplotypes[-1] = 1
+    else:
+        variant_haplotypes = [h-1 for h in H_no]
+        variant_concord = no
+        barcode_haplotypes[-1] = 0      
+    
+    #construct barcode haplotypes from traceback
+    current_col = barcode_haplotypes[-1]
+    for i in range(2,n_barcodes+1):
+        if current_col == 0: #not-flipped column
+            if traceback[-i+1][current_col] == 0: #stay in not-flipped state
+                barcode_haplotypes[-i] = 0
+            else: #went diagonally to flipped state
+                barcode_haplotypes[-i] = 1
+                current_col = 1
+        else: #flipped column
+            if traceback[-i+1][current_col] == 0: #stay in flipped state
+                barcode_haplotypes[-i] = 1
+            else: #went diagonally to not-flipped state
+                barcode_haplotypes[-i] = 0
+                current_col = 0
+    
+    #construct barcode concordance from the barcode and variant haplotypes
+    curr_bc = 0
+    stop = 0
+    while stop < len(nonzero[0]):
+        while stop < len(nonzero[0]) and nonzero[0][stop] == curr_bc:
+            j = nonzero[1][stop] #col in var mx
+            a = variant_matrix[curr_bc,j] - 1 #convert value of 1/2 to value of 0/1
+            if barcode_haplotypes[curr_bc] == 0: #not-flipped state
+                if a == variant_haplotypes[j]:
+                    barcode_concord[curr_bc] += 1
+            else:
+                if a != variant_haplotypes[j]: #flipped state
+                    barcode_concord[curr_bc] += 1
+            stop += 1   
+        curr_bc += 1
+
+    return (barcode_haplotypes, barcode_concord, variant_haplotypes, variant_concord, n_seen)
+
+
+def determine_mosaicism(haplotypes, skip_barcode_indices,
+                        barcode_index, variant_id, variant_barcodes,
+                        sequencing_error_rate=0.05):
+    '''
+    Given the barcodes that the haplotypes are a part of, \
+    identify mosaic variants.
+    Returns the number of barcodes used in the phasing, \
+    the probability of the variant as a mosaic and the probability \
+    of the variant begin a false-positive
+    '''
+
+    '''
+    Phasing evidence is stored in a 2x2 table. \
+    Axis 0 defines the status of the barcode, \
+    axis 1 defines the status of the mosaic variant.
+    '''
+    phasing_evidence = np.array([[0, 0], [0, 0]])
+    variant_properties = variant_barcodes[variant_id]
+    for allele, barcodes in variant_properties.items():
+        if not (type(allele) is int and type(barcodes) is list):
+            continue
+        for barcode in barcodes:
+            # Skip barcodes not in germline variants #
+            if barcode not in barcode_index:
+                continue
+            cur_index = barcode_index[barcode]
+            if cur_index in skip_barcode_indices:
+                continue
+            haplotype = haplotypes[cur_index]
+            phasing_evidence[haplotype, allele] += 1
+
+    logging.debug("Constructed phasing matrix {}".format(
+            str(phasing_evidence)))
+    
+
+    depth = sum(sum(phasing_evidence))
+    mosaic_haplotype = 0  # The haplotype with most mosaic variant barcodes
+    if phasing_evidence[1, 1] > phasing_evidence[0, 1]:
+        mosaic_haplotype = 1
+    # Skip sites with no haplotype informaive reads
+    #  or data on the mosaic haplotype
+    prob_mosaic, prob_false_positive = 0, 0
+    if (depth == 0 or (phasing_evidence[1, 1] == 0 and
+                       phasing_evidence[0, 1] == 0)):
+        prob_mosaic, prob_false_positive = 0, 0
+    else:
+        if phasing_evidence[mosaic_haplotype, 1] > 2:
+            if phasing_evidence[mosaic_haplotype, 0] > 2:
+                prob_mosaic = 0.98
+                print("Constructed phasing matrix {}".format(
+                    str(phasing_evidence)))
+                print(variant_id)
+                print(str(len(skip_barcode_indices)))
+            if phasing_evidence[abs(mosaic_haplotype - 1), 1] > 2:
+                prob_false_positive = 0.98
+
+    return (depth, prob_mosaic, prob_false_positive)
+
+    '''
+    Ignore for now, just sketching out an idea
+    '''
 def get_haplotypes_polyploid(variant_matrix,ploidy):
     #rows = barcodes; columns = variants
     variant_matrix = variant_matrix.T
@@ -181,7 +434,7 @@ def get_haplotypes_polyploid(variant_matrix,ploidy):
                     best_idx = p_possible
             H[p],C[p],T[p] = H_tmp[best_idx],C_tmp[best_idx],T_tmp[best_idx]
             traceback[i][p] = best_idx
-     
+    return (get_haplotypes(variant_matrix)) 
     #what is the best in the last row?
     for p in range(ploidy):
         best_idx = 0
@@ -202,264 +455,3 @@ def get_haplotypes_polyploid(variant_matrix,ploidy):
         current_col = traceback[-i][current_col]
      
     return (barcode_haplotypes, barcode_concord, variant_haplotypes, variant_concord, n_seen)
-        
-def get_haplotypes_diploid(variant_matrix):    
-
-    #rows = barcodes; columns = variants
-    variant_matrix = variant_matrix.T
-    n_variants = variant_matrix.shape[1]
-    n_barcodes = variant_matrix.shape[0]
-    #print(str(n_variants) + "," + str(n_barcodes))
-    if n_variants < 1 or n_barcodes < 1:
-        return None
-    
-    #print(str(n_barcodes) + "," + str(n_variants))
-    
-    #initialization values for first 2 cells
-    H_yes = [1] * n_variants #1's or 2's for alleles
-    C_yes = [0.0] * n_variants  # concordant barcodes
-    T_yes = [0.0] * n_variants # nonzero barcodes
-    H_no = [1] * n_variants 
-    C_no = [0.0] * n_variants  
-    T_no = [0.0] * n_variants 
-    
-    traceback = np.zeros((n_barcodes,2),dtype=np.dtype("int32")) # 0 = UP; 1 = DIAG
-    n_seen = [0] * n_barcodes
-    barcode_haplotypes = [0] * n_barcodes
-    barcode_concord = [0] * n_barcodes
-    variant_haplotypes = [0] * n_variants
-
-    
-    for i in range(n_barcodes):
-        
-        #print("bc " + str(i))
-        bc = variant_matrix[i]
-        n_seen[i] = np.count_nonzero(bc)
-        #case 1: this barcode isn't flipped
-        
-        H_yes_tmp1 = H_yes[:]
-        C_yes_tmp1 = C_yes[:]
-        T_yes_tmp1 = T_yes[:]
-        H_no_tmp1 = H_no[:]
-        C_no_tmp1 = C_no[:]
-        T_no_tmp1 = T_no[:]
-        
-        #case 2: this barcode is flipped
-        H_yes_tmp2 = H_yes[:]
-        C_yes_tmp2 = C_yes[:]
-        T_yes_tmp2 = T_yes[:]
-        H_no_tmp2 = H_no[:]
-        C_no_tmp2 = C_no[:]
-        T_no_tmp2 = T_no[:]
-        '''
-        
-        H_yes_tmp1 = []
-        C_yes_tmp1 = []
-        T_yes_tmp1 = []
-        H_no_tmp1 = []
-        C_no_tmp1 = []
-        T_no_tmp1 = []
-        
-        #case 2: this barcode is flipped
-        H_yes_tmp2 = []
-        C_yes_tmp2 = []
-        T_yes_tmp2 = []
-        H_no_tmp2 = []
-        C_no_tmp2 = []
-        T_no_tmp2 = []
-        '''
-        sum1yes = 0.0
-        sum1no = 0.0
-        sum2yes = 0.0
-        sum2no = 0.0
-        
-        nz = np.nonzero(bc)[0]
-        for j in nz: #update concordance
-            #pass
-            #print("var " + str(j))
-            '''
-            H_yes_tmp1.append(H_yes[j])
-            C_yes_tmp1.append(C_yes[j] + H_yes[j] == bc[j])
-            T_yes_tmp1.append(T_yes[j] + 1)
-            
-            
-            H_no_tmp1.append(H_no[j] + H_no[j] == bc[j])
-            C_no_tmp1.append(C_no[j])
-            T_no_tmp1.append(T_no[j] + 1)
-           
-            
-            #case 2: this barcode is flipped
-            H_yes_tmp2.append(H_yes[j])
-            C_yes_tmp2.append(C_yes[j] + H_yes[j] == bc[j])
-            T_yes_tmp2.append(T_yes[j] + 1)
-            
-            
-            H_no_tmp2.append(H_no[j])
-            C_no_tmp2.append(C_no[j] + H_no[j] == bc[j])
-            T_no_tmp2.append(T_no[j] + 1)
-            
-            if T_yes_tmp1[-1] != 0 and C_yes_tmp1[-1]/T_yes_tmp1[-1] < 0.5: #change haplotype?
-                C_yes_tmp1[-1] = T_yes_tmp1[-1] - C_yes_tmp1[-1]
-                H_yes_tmp1[-1] = (1 if H_yes_tmp1[-1] == 2 else 2)
-            sum1yes += (C_yes_tmp1[-1]/T_yes_tmp1[-1] if T_yes_tmp1[-1] != 0 else 0.0)
-        
-            if T_no_tmp1[-1] != 0 and C_no_tmp1[-1]/T_no_tmp1[-1] < 0.5: #change haplotype?
-                C_no_tmp1[-1] = T_no_tmp1[-1] - C_no_tmp1[-1]
-                H_no_tmp1[-1] = (1 if H_no_tmp1[-1] == 2 else 2)
-            sum1no += (C_no_tmp1[-1]/T_no_tmp1[-1] if T_no_tmp1[-1] != 0 else 0.0)
-            
-            if T_yes_tmp2[-1] != 0 and C_yes_tmp2[-1]/T_yes_tmp2[-1] < 0.5:
-                C_yes_tmp2[-1] = T_yes_tmp2[-1] - C_yes_tmp2[-1]
-                H_yes_tmp2[-1] = (1 if H_yes_tmp2[-1] == 2 else 2) 
-            sum2yes += (C_yes_tmp2[-1]/T_yes_tmp2[-1] if T_yes_tmp2[-1] != 0 else 0.0)
-            
-            if T_no_tmp2[-1] != 0 and C_no_tmp2[-1]/T_no_tmp2[-1] < 0.5:
-                C_no_tmp2[-1] = T_no_tmp2[-1] - C_no_tmp2[-1]
-                H_no_tmp2[-1] = (1 if H_no_tmp2[-1] == 2 else 2) 
-            sum2no += (C_no_tmp2[-1]/T_no_tmp2[-1] if T_no_tmp2[-1] != 0 else 0.0)
-        
-        if sum1yes > sum1no:
-            for idx, j in enumerate(nz):
-                H_no[j],C_no[j],T_no[j] = H_yes_tmp1[idx],C_yes_tmp1[idx],T_yes_tmp1[idx]
-            traceback[i][0] = 1 #DIAG
-        else: 
-            for idx, j in enumerate(nz):
-                H_no[j],C_no[j],T_no[j] = H_no_tmp1[idx],C_no_tmp1[idx],T_no_tmp1[idx]
-                traceback[i][0] = 0 #UP
-            
-            '''
-            T_yes_tmp1[j] += 1
-            T_no_tmp1[j] += 1
-            T_yes_tmp2[j] += 1
-            T_no_tmp2[j] += 1
-            if bc[j] == H_yes_tmp1[j]: #both 1's or both 2's
-                C_yes_tmp1[j] += 1
-            if bc[j] == H_no_tmp1[j]:
-                C_no_tmp1[j] += 1
-            if bc[j] != H_yes_tmp2[j]: #opposite
-                C_yes_tmp2[j] += 1
-            if bc[j] != H_no_tmp2[j]:
-                C_no_tmp2[j] += 1
-        if T_yes_tmp1[j] != 0 and C_yes_tmp1[j]/T_yes_tmp1[j] < 0.5: #change haplotype?
-            C_yes_tmp1[j] = T_yes_tmp1[j] - C_yes_tmp1[j]
-            H_yes_tmp1[j] = (1 if H_yes_tmp1[j] == 2 else 2)
-        sum1yes += (C_yes_tmp1[j]/T_yes_tmp1[j] if T_yes_tmp1[j] != 0 else 0.0)
-        
-        if T_no_tmp1[j] != 0 and C_no_tmp1[j]/T_no_tmp1[j] < 0.5: #change haplotype?
-            C_no_tmp1[j] = T_no_tmp1[j] - C_no_tmp1[j]
-            H_no_tmp1[j] = (1 if H_no_tmp1[j] == 2 else 2)
-        sum1no += (C_no_tmp1[j]/T_no_tmp1[j] if T_no_tmp1[j] != 0 else 0.0)
-        
-        if T_yes_tmp2[j] != 0 and C_yes_tmp2[j]/T_yes_tmp2[j] < 0.5:
-            C_yes_tmp2[j] = T_yes_tmp2[j] - C_yes_tmp2[j]
-            H_yes_tmp2[j] = (1 if H_yes_tmp2[j] == 2 else 2) 
-        sum2yes += (C_yes_tmp2[j]/T_yes_tmp2[j] if T_yes_tmp2[j] != 0 else 0.0)
-        
-        if T_no_tmp2[j] != 0 and C_no_tmp2[j]/T_no_tmp2[j] < 0.5:
-            C_no_tmp2[j] = T_no_tmp2[j] - C_no_tmp2[j]
-            H_no_tmp2[j] = (1 if H_no_tmp2[j] == 2 else 2) 
-        sum2no += (C_no_tmp2[j]/T_no_tmp2[j] if T_no_tmp2[j] != 0 else 0.0)
-            
-        #case 1: not flipped
-        #if sum([C_yes_tmp1[i]/T_yes_tmp1[i] if T_yes_tmp1[i] != 0 else 0.0 for i in range(n_variants)]) > sum([C_no_tmp1[i]/T_no_tmp1[i] if T_no_tmp1[i] != 0 else 0.0 for i in range(n_variants)]): 
-        if sum1yes > sum1no:
-            H_no,C_no,T_no = H_yes_tmp1,C_yes_tmp1,T_yes_tmp1
-            traceback[i][0] = 1 #DIAG
-        else: 
-            H_no,C_no,T_no = H_no_tmp1,C_yes_tmp1,T_yes_tmp1
-            traceback[i][0] = 0 #UP
-        #case 2: flipped       
-        #if sum([C_yes_tmp2[i]/T_yes_tmp2[i] if T_yes_tmp2[i] != 0 else 0.0 for i in range(n_variants)]) > sum([C_no_tmp2[i]/T_no_tmp2[i] if T_no_tmp2[i] != 0 else 0.0 for i in range(n_variants)]): 
-        if sum2yes > sum2no:
-            H_yes,C_yes,T_yes = H_yes_tmp2,C_yes_tmp2,T_yes_tmp2
-            traceback[i][1] = 0 #UP
-        #if sum([C_yes_tmp2[i]/T_yes_tmp2[i] if T_yes_tmp2[i] != 0 else 0.0 for i in range(n_variants)]) <= sum([C_no_tmp2[i]/T_no_tmp2[i] if T_no_tmp2[i] != 0 else 0.0 for i in range(n_variants)]): 
-        else:
-            H_yes,C_yes,T_yes = H_no_tmp2,C_yes_tmp2,T_yes_tmp2
-            traceback[i][1] = 1 #DIAG
-        
-    #What to choose in last row
-    yes = [C_yes[i]/T_yes[i] if T_yes[i] != 0 else 0.0 for i in range(n_variants)]
-    no = [C_no[i]/T_no[i] if T_no[i] != 0 else 0.0 for i in range(n_variants)]
-    if sum(yes) > sum(no):
-        variant_haplotypes = H_yes
-        variant_concord = yes #[C_yes[i]/T_yes[i] if T_yes[i] != 0 else 0.0 for i in range(n_variants)]
-        barcode_haplotypes[-1] = 1
-    else:
-        variant_haplotypes = H_no
-        variant_concord = no #[C_no[i]/T_no[i] if T_no[i] != 0 else 0.0 for i in range(n_variants)]
-        barcode_haplotypes[-1] = 0      
-        
-    for i in range(n_barcodes): 
-        barcode_concord[i] = 1.0*sum([bc[j] == variant_haplotypes[j] for j in range(n_variants)])/n_seen[i]
-    
-    current_col = barcode_haplotypes[-1]
-    for i in range(2,n_barcodes+1):
-        if current_col == 0: #not-flipped column
-            if traceback[-i][current_col] == 0: #stay in not-flipped state
-                barcode_haplotypes[-i] = 0
-            else: #went diagonally to flipped state
-                barcode_haplotypes[-i] = 1
-                current_col = 1
-        else: #flipped column
-            if traceback[-i][current_col] == 0: #stay in flipped state
-                barcode_haplotypes[-i] = 1
-            else: #went diagonally to not-flipped state
-                barcode_haplotypes[-i] = 0
-                current_col = 0
-    #print(str(n_seen))
-    return (barcode_haplotypes, barcode_concord, variant_haplotypes, variant_concord, n_seen)
-
-
-def determine_mosaicism(haplotypes, skip_barcode_indices,
-                        barcode_index, variant_id, variant_barcodes,
-                        sequencing_error_rate=0.05):
-    '''
-    Given the barcodes that the haplotypes are a part of, \
-    identify mosaic variants.
-    Returns the number of barcodes used in the phasing, \
-    the probability of the variant as a mosaic and the probability \
-    of the variant begin a false-positive
-    '''
-
-    '''
-    Phasing evidence is stored in a 2x2 table. \
-    Axis 0 defines the status of the barcode, \
-    axis 1 defines the status of the mosaic variant.
-    '''
-    phasing_evidence = np.array([[0, 0], [0, 0]])
-    variant_properties = variant_barcodes[variant_id]
-    for allele, barcodes in variant_properties.items():
-        if not (type(allele) is int and type(barcodes) is list):
-            continue
-        for barcode in barcodes:
-            # Skip barcodes not in germline variants #
-            if barcode not in barcode_index:
-                continue
-            cur_index = barcode_index[barcode]
-            if cur_index in skip_barcode_indices:
-                continue
-            haplotype = haplotypes[cur_index]
-            phasing_evidence[haplotype, allele] += 1
-
-    logging.debug("Constructed phasing matrix {}".format(
-            str(phasing_evidence)))
-
-    depth = sum(sum(phasing_evidence))
-    mosaic_haplotype = 0  # The haplotype with most mosaic variant barcodes
-    if phasing_evidence[1, 1] > phasing_evidence[0, 1]:
-        mosaic_haplotype = 1
-    # Skip sites with no haplotype informaive reads
-    #  or data on the mosaic haplotype
-    prob_mosaic, prob_false_positive = 0, 0
-    if (depth == 0 or (phasing_evidence[1, 1] == 0 and
-                       phasing_evidence[0, 1] == 0)):
-        prob_mosaic, prob_false_positive = 0, 0
-    else:
-        if phasing_evidence[mosaic_haplotype, 1] > 2:
-            if phasing_evidence[mosaic_haplotype, 0] > 2:
-                prob_mosaic = 0.98
-            if phasing_evidence[abs(mosaic_haplotype - 1), 1] > 2:
-                prob_false_positive = 0.98
-
-    return (depth, prob_mosaic, prob_false_positive)
