@@ -60,15 +60,15 @@ def phase_mosaic_var(variant_id, variant_barcodes):
     (depth, prob_mosaic, prob_false_positive) = determine_mosaicism(barcode_haplotypes, skip_barcode_indices,
                                barcode_index, variant_id, variant_barcodes)
     
-    if prob_mosaic == 0.98:
+    #if prob_mosaic == 0.98:
         #print(str(barcode_concord))
-        print(str(variant_haplotypes))
-        '''
-        print("Removed {} barcodes due to discordance".format(
-            len(barcode_discordant)))
-        print("Removed {} barcodes due to not seen".format(
-            len(barcode_not_seen)))
-        '''
+        #print(str(variant_haplotypes))
+    '''
+    print("Removed {} barcodes due to discordance".format(
+        len(barcode_discordant)))
+    print("Removed {} barcodes due to not seen".format(
+        len(barcode_not_seen)))
+    '''
     return (depth, prob_mosaic, prob_false_positive)
 
 def construct_germline_barcode_matrix(variant_barcodes,
@@ -225,21 +225,33 @@ def get_haplotypes_diploid(variant_matrix):
             if T_yes_tmp1[j] != 0 and C_yes_tmp1[j]/T_yes_tmp1[j] < 0.5:
                 C_yes_tmp1[j] = T_yes_tmp1[j] - C_yes_tmp1[j]
                 H_yes_tmp1[j] = (1 if H_yes_tmp1[j] == 2 else 2)
+            elif T_yes_tmp1[j] != 0 and C_yes_tmp1[j]/T_yes_tmp1[j] == 0.5:
+                H_yes_tmp1[j] = 1
+                #print("tie")
             sum1yes += (C_yes_tmp1[j]/T_yes_tmp1[j] if T_yes_tmp1[j] != 0 else 0.0)
             
             if T_no_tmp1[j] != 0 and C_no_tmp1[j]/T_no_tmp1[j] < 0.5:
                 C_no_tmp1[j] = T_no_tmp1[j] - C_no_tmp1[j]
                 H_no_tmp1[j] = (1 if H_no_tmp1[j] == 2 else 2)
+            elif T_no_tmp1[j] != 0 and C_no_tmp1[j]/T_no_tmp1[j] == 0.5:
+                H_no_tmp1[j] = 1
+                #print("tie")
             sum1no += (C_no_tmp1[j]/T_no_tmp1[j] if T_no_tmp1[j] != 0 else 0.0)
             
             if T_yes_tmp2[j] != 0 and C_yes_tmp2[j]/T_yes_tmp2[j] < 0.5:
                 C_yes_tmp2[j] = T_yes_tmp2[j] - C_yes_tmp2[j]
                 H_yes_tmp2[j] = (1 if H_yes_tmp2[j] == 2 else 2) 
+            elif T_yes_tmp2[j] != 0 and C_yes_tmp2[j]/T_yes_tmp2[j] == 0.5:
+                H_yes_tmp2[j] = 1
+                #print("tie")
             sum2yes += (C_yes_tmp2[j]/T_yes_tmp2[j] if T_yes_tmp2[j] != 0 else 0.0)
             
             if T_no_tmp2[j] != 0 and C_no_tmp2[j]/T_no_tmp2[j] < 0.5:
                 C_no_tmp2[j] = T_no_tmp2[j] - C_no_tmp2[j]
                 H_no_tmp2[j] = (1 if H_no_tmp2[j] == 2 else 2) 
+            elif T_no_tmp2[j] != 0 and C_no_tmp2[j]/T_no_tmp2[j] == 0.5:
+                H_no_tmp2[j] = 1
+                #print("tie")
             sum2no += (C_no_tmp2[j]/T_no_tmp2[j] if T_no_tmp2[j] != 0 else 0.0)
         
         #determine which case was better in the traceback for each cell
@@ -252,6 +264,8 @@ def get_haplotypes_diploid(variant_matrix):
         else: 
             H_no,C_no,T_no = H_no_tmp1,C_no_tmp1,T_no_tmp1
             traceback[curr_bc][0] = 0 #UP
+        #if H_no_tmp1 != H_yes_tmp1:
+            #print("traceback tie")
         #case 2: flipped       
         if sum2yes > sum2no:
             H_yes,C_yes,T_yes = H_yes_tmp2,C_yes_tmp2,T_yes_tmp2
@@ -259,7 +273,9 @@ def get_haplotypes_diploid(variant_matrix):
         else:
             H_yes,C_yes,T_yes = H_no_tmp2,C_no_tmp2,T_no_tmp2
             traceback[curr_bc][1] = 1 #DIAG
-        
+        #if sum2yes == sum2no:
+            #print("traceback tie")
+            
         curr_bc += 1
     
     #What to choose in last row
@@ -274,7 +290,9 @@ def get_haplotypes_diploid(variant_matrix):
         variant_haplotypes = [h-1 for h in H_no]
         variant_concord = no
         barcode_haplotypes[-1] = 0      
-    
+    if sum(yes) == sum(no):
+        print("final row tie")
+        
     #construct barcode haplotypes from traceback
     current_col = barcode_haplotypes[-1]
     for i in range(2,n_barcodes+1):
