@@ -5,7 +5,7 @@ import numpy as np
 import scipy.stats
 import sys
 import logging
-
+import copy
 
 def matrix_to_str(np_matrix, n_rows=np.inf, n_cols=np.inf):
     '''
@@ -209,50 +209,51 @@ def get_haplotypes_diploid(variant_matrix):
             
             #compare alleles
             #want equal-to if the barcode is not flipped
-            if a == H_yes_tmp1[j]: #both 1's or both 2's
-                C_yes_tmp1[j] += 1
-            if a == H_no_tmp1[j]:
-                C_no_tmp1[j] += 1
+            C_yes_tmp1[j] += (a == H_yes_tmp1[j]) #both 1's or both 2's
+            C_no_tmp1[j] += (a == H_no_tmp1[j])
             #want unequal-to if the barcode is flipped
-            if a != H_yes_tmp2[j]:
-                C_yes_tmp2[j] += 1
-            if a != H_no_tmp2[j]:
-                C_no_tmp2[j] += 1
+            C_yes_tmp2[j] += (a != H_yes_tmp2[j])
+            C_no_tmp2[j] += (a != H_no_tmp2[j])
             
             stop += 1    
             
             #haplotype for this variant changes if #concordant/#total is less than 0.5
-            if T_yes_tmp1[j] != 0 and C_yes_tmp1[j]/T_yes_tmp1[j] < 0.5:
+            #totals should always be > 0 because just incremented above
+            q = C_yes_tmp1[j]/T_yes_tmp1[j]
+            if q < 0.5:
                 C_yes_tmp1[j] = T_yes_tmp1[j] - C_yes_tmp1[j]
                 H_yes_tmp1[j] = (1 if H_yes_tmp1[j] == 2 else 2)
-            elif T_yes_tmp1[j] != 0 and C_yes_tmp1[j]/T_yes_tmp1[j] == 0.5:
+            elif q == 0.5:
                 H_yes_tmp1[j] = 1
                 #print("tie")
-            sum1yes += (C_yes_tmp1[j]/T_yes_tmp1[j] if T_yes_tmp1[j] != 0 else 0.0)
+            sum1yes += (C_yes_tmp1[j]/T_yes_tmp1[j])
             
-            if T_no_tmp1[j] != 0 and C_no_tmp1[j]/T_no_tmp1[j] < 0.5:
+            q = C_no_tmp1[j]/T_no_tmp1[j]
+            if q < 0.5:
                 C_no_tmp1[j] = T_no_tmp1[j] - C_no_tmp1[j]
                 H_no_tmp1[j] = (1 if H_no_tmp1[j] == 2 else 2)
-            elif T_no_tmp1[j] != 0 and C_no_tmp1[j]/T_no_tmp1[j] == 0.5:
+            elif q == 0.5:
                 H_no_tmp1[j] = 1
                 #print("tie")
-            sum1no += (C_no_tmp1[j]/T_no_tmp1[j] if T_no_tmp1[j] != 0 else 0.0)
+            sum1no += (C_no_tmp1[j]/T_no_tmp1[j])
             
-            if T_yes_tmp2[j] != 0 and C_yes_tmp2[j]/T_yes_tmp2[j] < 0.5:
+            q = C_yes_tmp2[j]/T_yes_tmp2[j]
+            if q < 0.5:
                 C_yes_tmp2[j] = T_yes_tmp2[j] - C_yes_tmp2[j]
                 H_yes_tmp2[j] = (1 if H_yes_tmp2[j] == 2 else 2) 
-            elif T_yes_tmp2[j] != 0 and C_yes_tmp2[j]/T_yes_tmp2[j] == 0.5:
+            elif q == 0.5:
                 H_yes_tmp2[j] = 1
                 #print("tie")
-            sum2yes += (C_yes_tmp2[j]/T_yes_tmp2[j] if T_yes_tmp2[j] != 0 else 0.0)
+            sum2yes += (C_yes_tmp2[j]/T_yes_tmp2[j])
             
-            if T_no_tmp2[j] != 0 and C_no_tmp2[j]/T_no_tmp2[j] < 0.5:
+            q = C_no_tmp2[j]/T_no_tmp2[j]
+            if q < 0.5:
                 C_no_tmp2[j] = T_no_tmp2[j] - C_no_tmp2[j]
                 H_no_tmp2[j] = (1 if H_no_tmp2[j] == 2 else 2) 
-            elif T_no_tmp2[j] != 0 and C_no_tmp2[j]/T_no_tmp2[j] == 0.5:
+            elif q == 0.5:
                 H_no_tmp2[j] = 1
                 #print("tie")
-            sum2no += (C_no_tmp2[j]/T_no_tmp2[j] if T_no_tmp2[j] != 0 else 0.0)
+            sum2no += (C_no_tmp2[j]/T_no_tmp2[j])
         
         #determine which case was better in the traceback for each cell
         #if change from yes col to no col, it's a 1; else 0
@@ -290,8 +291,8 @@ def get_haplotypes_diploid(variant_matrix):
         variant_haplotypes = [h-1 for h in H_no]
         variant_concord = no
         barcode_haplotypes[-1] = 0      
-    if sum(yes) == sum(no):
-        print("final row tie")
+    #if sum(yes) == sum(no):
+    #    print("final row tie")
         
     #construct barcode haplotypes from traceback
     current_col = barcode_haplotypes[-1]
@@ -386,90 +387,146 @@ def determine_mosaicism(haplotypes, skip_barcode_indices,
 
     return (depth, prob_mosaic, prob_false_positive)
 
+def get_haplotypes_polyploid(variant_matrix,ploidy):    
     '''
-    Ignore for now, just sketching out an idea
+    Arguments    
+    variant_matrix: values are 0/1/2
+    rows = barcodes; columns = variants
+    
+    Return Values
+    barcode_haplotypes: values are 0,1,...ploidy-1 repr haplotypes
+    variant_haplotypes: (List) values in a list are 0/1 repr alleles on 
+        that haplotype out of 1,...ploidy
+    barcode_concord: values are counts of concordant vars on each barcode
+        (wrt the H-vector of haplotype it's assigned to)
+        Noticed that above, we look at concordance/num_seen < 0.5 to discard
+        so it doesn't seem right to do the add/subtract method
+    variant_concord:(List) fraction of barcodes that are concordant
+        for each haplotype out of 1,...ploidy
+    n_seen: number of nonzero values from each barcode
     '''
-def get_haplotypes_polyploid(variant_matrix,ploidy):
-    #rows = barcodes; columns = variants
     variant_matrix = variant_matrix.T
-    n_variants = variant_matrix.shape[1]
     n_barcodes = variant_matrix.shape[0]
-   
-    #print(str(n_barcodes) + "," + str(n_variants))
+    n_variants = variant_matrix.shape[1]
+    #print(str(n_variants) + "," + str(n_barcodes))
+    if n_variants < 1 or n_barcodes < 1:
+        return None
+    
     #initialization values for first <ploidy> cells in traceback
-    #list of lists: the ith list is the case for assigning to the ith haplotype
+    #dim1: cells in row
+    #dim2: haplotypes
+    #dim3: variants
     H = []
     C = []
     T = []
-    for i in range(ploidy):
-        H.append([1] * n_variants) #1's or 2's for alleles
-        C.append([0.0] * n_variants) # concordant barcodes
-        T.append([0.0] * n_variants) # nonzero barcodes 
+    for j in range(ploidy):
+        H.append([])
+        C.append([])
+        T.append([])
+        for i in range(ploidy):
+            H[j].append([1] * n_variants) #1's or 2's for alleles
+            C[j].append([0.0] * n_variants) # concordant barcodes
+            T[j].append([0.0] * n_variants) # nonzero barcodes    
     
-    traceback = np.zeros((n_barcodes,ploidy),dtype=np.dtype("int32")) # index of cell that the up-arrow points to
+    traceback = np.zeros((n_barcodes,ploidy),dtype=np.dtype("int32")) 
+    #column number of prev. row that up-arrow points to
     n_seen = [0] * n_barcodes
     barcode_haplotypes = [0] * n_barcodes
     barcode_concord = [0] * n_barcodes
     variant_haplotypes = [0] * n_variants
-    
-    for i in range(n_barcodes):
-        bc = variant_matrix[i]
-        
-        #temporary copies of data structures for all haplotypes
-        #list (each cell in this row) of lists (possible arrow directions) 
-        #of lists (assigning to each hap)
-        H_tmp = [] 
-        C_tmp = [] 
-        T_tmp = []
-        for p in range(ploidy): 
-            H_tmp.append([vec[:] for vec in H])
-            C_tmp.append([vec[:] for vec in C])
-            T_tmp.append([vec[:] for vec in T])
-            
-        for j in range(n_variants): #update concordance
-            if bc[j] != 0:
-                n_seen[i] += 1
-                for p in range(ploidy): #cells in row
-                    for vec in T_tmp[p]: #possible arrow directions
-                        vec[j] += 1 #this variant
-                for p in range(ploidy):
-                    for vec_idx, vec in H_tmp[p]:
-                        if vec[j] == bc[j]:
-                            C_tmp[p][vec_idx][j] += 1
-                
-            for p in range(ploidy):
-                for vec_idx, vec in enumerate(H_tmp[p]):
-                # Is this still the right logic?
-                    if C_tmp[p][vec_idx][j]/T_tmp[p][vec_idx][j] < 0.5: #change haplotype?
-                        C_tmp[p][vec_idx][j] = C_tmp[p][vec_idx][j] - T_tmp[p][vec_idx][j]
-                        vec[vec_idx][j] = (1 if vec[vec_idx][j] == 2 else 2)  
 
-        for p in range(ploidy): #what is the best option for each cell up arrow?
-            best_idx = 0
-            best_value = 0.0
-            for p_possible in range(ploidy): #possible haplotypes for up arrow to point to
-                if sum([C_tmp[p][p_possible][i]/T_tmp[p][p_possible][i] for i in range(n_variants)]) > best_value: 
-                    best_idx = p_possible
-            H[p],C[p],T[p] = H_tmp[best_idx],C_tmp[best_idx],T_tmp[best_idx]
-            traceback[i][p] = best_idx
-    return (get_haplotypes(variant_matrix)) 
-    #what is the best in the last row?
-    for p in range(ploidy):
-        best_idx = 0
-        best_value = 0.0
-        if sum([C[p][i]/T[p][i] for i in range(n_variants)]) > best_value: 
-            best_idx = p_possible
-    variant_haplotypes = H[best_idx]
-    variant_concord = [C[best_idx][i]/T[best_idx][i] for i in range(n_variants)]
-    barcode_haplotypes[-1] = best_idx
-    
-    for i in range(n_barcodes): 
-        bc = variant_matrix[i]
-        barcode_concord[i] = 1.0*sum([bc[j] == H[j] for j in range(n_variants)])/n_seen[i]
+    curr_bc = 0
+    stop = 0
+    nonzero = variant_matrix.nonzero()
+    while stop < len(nonzero[0]):
+        #iterate through barcodes
+       
+        #copy all data structures for each case in this row
+
+        H_all_tmp = []
+        C_all_tmp = []
+        T_all_tmp = []
+        for p in range(ploidy):
+            H_all_tmp.append(copy.deepcopy(H))
+            C_all_tmp.append(copy.deepcopy(C))
+            T_all_tmp.append(copy.deepcopy(T))
+            
+        #net change to concordance
+        #rows = cases; cols = possible prev cells 
+        chg = [[0.0 for i in range(ploidy)] for p in range(ploidy)]
         
-    current_col = haplotypes[-1]
-    for i in range(2,n_barcodes+1):
-        barcode_haplotypes[-i] = traceback[-i][current_col]
-        current_col = traceback[-i][current_col]
-     
+        while stop < len(nonzero[0]) and nonzero[0][stop] == curr_bc:
+            #iterate through variants
+            j = nonzero[1][stop] #variant index
+            n_seen[curr_bc] += 1
+            a = variant_matrix[curr_bc,j] #1 or 2 (allele)
+            for case in range(ploidy):
+                H_tmp,C_tmp,T_tmp = H_all_tmp[case],C_all_tmp[case],T_all_tmp[case]
+                for prev_cell in range(ploidy):
+                    #increment count (denominator)
+                    T_tmp[prev_cell][case][j] += 1
+                    #check allele
+                    C_tmp[prev_cell][case][j] += (a == H_tmp[prev_cell][case][j])
+                    #haplotype for this variant changes if #concordant/#total is less than 0.5
+                    q = C_tmp[prev_cell][case][j] / T_tmp[prev_cell][case][j]
+                    if q < 0.5:
+                        C_tmp[prev_cell][case][j] = T_tmp[prev_cell][case][j] - C_tmp[prev_cell][case][j]
+                        H_tmp[prev_cell][case][j] = (1 if H_tmp[prev_cell][case][j] == 2 else 2)
+                    elif q == 0.5:
+                        H_tmp[prev_cell][case][j] = 1
+                    chg[case][prev_cell] += (C_tmp[prev_cell][case][j] / T_tmp[prev_cell][case][j]  - q)
+            stop += 1   
+        #choose optimal prev_cell for each case and update H/C/T and traceback
+        for case in range(ploidy):
+            max_index = -1
+            max_val = -1*n_variants
+            for i in range(ploidy):
+                if chg[case][i] > max_val:
+                    max_val = chg[case][i]
+                    max_index = i
+            H[case] = H_all_tmp[case][max_index]
+            C[case] = C_all_tmp[case][max_index]
+            T[case] = T_all_tmp[case][max_index]
+            traceback[curr_bc][case] = max_index
+            
+        curr_bc += 1
+    #What to choose in last row: sum of concordances for ALL haplotypes for each cell
+    max_concordance = -1*n_barcodes
+    max_index = -1
+    for case in range(ploidy):
+        c = 0
+        for p in range(ploidy):
+            c += sum([C[case][p][i]/T[case][p][i] if T[case][p][i] != 0 else 0.0 for i in range(n_variants)])
+        if c > max_concordance:
+            max_concordance = c
+            max_index = case
+    
+    variant_concord = []
+    for c in range(ploidy): #change from count to fraction
+        variant_concord.append([ (C[max_index][c][v] / T[max_index][c][v] if T[max_index][c][v] > 0 else 0.0) for v in range(n_variants)])
+    
+    variant_haplotypes_tmp = H[max_index] #list of all haplotype vectors
+    variant_haplotypes = []
+    for v in variant_haplotypes_tmp:
+        variant_haplotypes.append([i-1 for i in v])
+    
+    barcode_haplotypes[-1] = max_index
+    #construct barcode haplotypes from traceback
+    for i in range(1,n_barcodes):
+        barcode_haplotypes[-i-1] = traceback[-i][barcode_haplotypes[-i]]
+        
+    #construct barcode concordance from the barcode and variant haplotypes
+    curr_bc = 0
+    stop = 0
+    while stop < len(nonzero[0]):
+        while stop < len(nonzero[0]) and nonzero[0][stop] == curr_bc:
+            j = nonzero[1][stop] #col in var mx
+            a_bc = variant_matrix[curr_bc,j] - 1 #convert value of 1/2 to value of 0/1
+            i = barcode_haplotypes[curr_bc]
+            a_hap = variant_haplotypes[i][j]
+            barcode_concord[curr_bc] += (a_bc == a_hap)
+
+            stop += 1   
+        curr_bc += 1
+
     return (barcode_haplotypes, barcode_concord, variant_haplotypes, variant_concord, n_seen)
