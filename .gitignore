@@ -90,3 +90,5 @@ ENV/
 
 # Emacs tmp files
 *~
+results.txt
+*.txt

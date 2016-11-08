@@ -40,8 +40,8 @@ def phase_mosaic_var(variant_id, variant_barcodes):
 #    logging.debug("Table is:\n{}".format(
 #            matrix_to_str(variant_matrix, 10000, 50)))
     (barcode_haplotypes, barcode_concord, variant_haplotypes, variant_concord, n_seen) = get_haplotypes_DP(variant_matrix)
-    #(barcode_haplotypes, barcode_concord, n_seen) = get_haplotypes_DP(variant_matrix)
-    
+        #note that variant_haplotypes and variant_concord are tuples and 
+        #barcode_haplotypes is not 0/1 if ploidy != 2
     skip_barcode_indices = set()
     barcode_not_seen = set()
     barcode_discordant = set()
@@ -117,11 +117,17 @@ def construct_germline_barcode_matrix(variant_barcodes,
 def get_haplotypes_DP(variant_matrix,ploidy=2):
     '''
     Determine the haplotypes of the barcodes.
-    barcode_haplotypes: Haplotype (1 or 0) of each barcode
-    barcode_concord: Fraction of variants that are concordant on each barcode
-    variant_haplotypes: Allele (1 or 0) of each variant on haplotype 0 (this "haplotype 0" is numbered wrt barcode_haplotypes)
-    variant_concord: fraction of barcodes concordant with this variant
-    n_seen: nubmer of variants on each barcode
+    get_haplotypes_diploid returns:
+        barcode_haplotypes: Haplotype (1 or 0) of each barcode
+        barcode_concord: Fraction of variants that are concordant on each barcode
+        variant_haplotypes: Allele (1 or 0) of each variant on haplotype 0 
+            (this "haplotype 0" is numbered wrt barcode_haplotypes)
+        variant_concord: fraction of barcodes concordant with this variant
+        n_seen: nubmer of variants on each barcode
+    get_haplotypes_polyploid returns the same except:
+        entries in barcode_haplotypes are 0...ploidy-1
+        variant_haplotypes and variant_concord have one element for 
+        the haplotype of each ploidy 
     '''
     if ploidy == 2:
         return get_haplotypes_diploid(variant_matrix)
@@ -129,7 +135,9 @@ def get_haplotypes_DP(variant_matrix,ploidy=2):
         return get_haplotypes_polyploid(variant_matrix,ploidy)
 
    
-def get_haplotypes_diploid(variant_matrix):    
+def get_haplotypes_diploid(variant_matrix):  
+    # 2:15 for the 10K variants with np arrays; 1:55 with lists
+  
     '''
     Arguments    
     variant_matrix: values are 0/1/2
@@ -137,8 +145,8 @@ def get_haplotypes_diploid(variant_matrix):
     
     Return Values
     barcode_haplotypes: values are 0/1 repr haplotypes
-    variant_haplotypes: values are 0/1 repr alleles on 
-        haplotype 0 from barcode_haplotypes
+    variant_haplotypes: values are 0/1 repr alleles 
+        (on haplotype 0 wrt barcode_haplotypes)
     barcode_concord: values are counts of concordant 
         Noticed that above, we look at concordance/num_seen < 0.5 to discard
         so it doesn't seem right to do the add/subtract method
@@ -154,19 +162,33 @@ def get_haplotypes_diploid(variant_matrix):
         return None
     
     #initialization values for first 2 cells (in each column of DP matrix)
+    
     H_yes = [1] * n_variants #represents 1's or 2's for alleles
     C_yes = [0.0] * n_variants  # concordant barcodes
     T_yes = [0.0] * n_variants # nonzero barcodes
     H_no = [1] * n_variants 
     C_no = [0.0] * n_variants  
     T_no = [0.0] * n_variants 
-    
+    '''
+    H_yes = np.ones(n_variants,dtype=np.int)
+    C_yes = np.zeros(n_variants)
+    T_yes = np.zeros(n_variants)
+    H_no = np.ones(n_variants,dtype=np.int)
+    C_no = np.zeros(n_variants)
+    T_no = np.zeros(n_variants)
+     '''
     traceback = np.zeros((n_barcodes,2),dtype=np.dtype("int32")) # 0 = UP; 1 = DIAG
+    
+    '''
     n_seen = [0] * n_barcodes
     barcode_haplotypes = [0] * n_barcodes
     barcode_concord = [0] * n_barcodes
     variant_haplotypes = [0] * n_variants
-
+    '''
+    n_seen = np.zeros(n_barcodes,dtype=np.int)
+    barcode_haplotypes = np.zeros(n_barcodes,dtype=np.int)
+    barcode_concord = np.zeros(n_barcodes,dtype=np.int)
+    
     curr_bc = 0
     stop = 0
     nonzero = variant_matrix.nonzero()
@@ -174,20 +196,37 @@ def get_haplotypes_diploid(variant_matrix):
         #iterate through barcodes
         
         #case 1: this barcode isn't flipped
-        H_yes_tmp1 = H_yes[:]
-        C_yes_tmp1 = C_yes[:]
-        T_yes_tmp1 = T_yes[:]
-        H_no_tmp1 = H_no[:]
-        C_no_tmp1 = C_no[:]
-        T_no_tmp1 = T_no[:]
+        '''
+        H_yes_tmp1 = np.copy(H_yes)
+        C_yes_tmp1 = np.copy(C_yes)
+        T_yes_tmp1 = np.copy(T_yes)
+        H_no_tmp1 = np.copy(H_no)
+        C_no_tmp1 = np.copy(C_no)
+        T_no_tmp1 = np.copy(T_no)
         
         #case 2: this barcode is flipped
-        H_yes_tmp2 = H_yes[:]
-        C_yes_tmp2 = C_yes[:]
-        T_yes_tmp2 = T_yes[:]
-        H_no_tmp2 = H_no[:]
-        C_no_tmp2 = C_no[:]
-        T_no_tmp2 = T_no[:]
+        H_yes_tmp2 = np.copy(H_yes)
+        C_yes_tmp2 = np.copy(C_yes)
+        T_yes_tmp2 = np.copy(T_yes)
+        H_no_tmp2 = np.copy(H_no)
+        C_no_tmp2 = np.copy(C_no)
+        T_no_tmp2 = np.copy(T_no)
+        '''
+        
+        H_yes_tmp1 = (H_yes)[:]
+        C_yes_tmp1 = (C_yes)[:]
+        T_yes_tmp1 = (T_yes)[:]
+        H_no_tmp1 = (H_no)[:]
+        C_no_tmp1 = (C_no)[:]
+        T_no_tmp1 = (T_no)[:]
+        
+        #case 2: this barcode is flipped
+        H_yes_tmp2 = (H_yes)[:]
+        C_yes_tmp2 = (C_yes)[:]
+        T_yes_tmp2 = (T_yes)[:]
+        H_no_tmp2 = (H_no)[:]
+        C_no_tmp2 = (C_no)[:]
+        T_no_tmp2 = (T_no)[:]
         
         #net changes to concordance vector for each of the 4 cases considered
         sum1yes = 0.0
@@ -280,15 +319,15 @@ def get_haplotypes_diploid(variant_matrix):
         curr_bc += 1
     
     #What to choose in last row
-    yes = [C_yes[i]/T_yes[i] if T_yes[i] != 0 else 0.0 for i in range(n_variants)]
-    no = [C_no[i]/T_no[i] if T_no[i] != 0 else 0.0 for i in range(n_variants)]
+    yes = np.array([C_yes[i]/T_yes[i] if T_yes[i] != 0 else 0.0 for i in range(n_variants)])
+    no = np.array([C_no[i]/T_no[i] if T_no[i] != 0 else 0.0 for i in range(n_variants)])
 
     if sum(yes) > sum(no):
-        variant_haplotypes = [h-1 for h in H_yes] #correct to be values 0/1
+        variant_haplotypes = np.array([h-1 for h in H_yes]) #correct to be values 0/1
         variant_concord = yes
         barcode_haplotypes[-1] = 1
     else:
-        variant_haplotypes = [h-1 for h in H_no]
+        variant_haplotypes = np.array([h-1 for h in H_no])
         variant_concord = no
         barcode_haplotypes[-1] = 0      
     #if sum(yes) == sum(no):
@@ -387,7 +426,10 @@ def determine_mosaicism(haplotypes, skip_barcode_indices,
 
     return (depth, prob_mosaic, prob_false_positive)
 
-def get_haplotypes_polyploid(variant_matrix,ploidy):    
+def get_haplotypes_polyploid(variant_matrix,ploidy):   
+    # 3:51 for the 10K variants (ploidy=2) with np arrays; [too long] with lists
+    # 7:17 for the 10K variants (ploidy=3) with np arrays
+    ploidy=3
     '''
     Arguments    
     variant_matrix: values are 0/1/2
@@ -427,13 +469,19 @@ def get_haplotypes_polyploid(variant_matrix,ploidy):
             H[j].append([1] * n_variants) #1's or 2's for alleles
             C[j].append([0.0] * n_variants) # concordant barcodes
             T[j].append([0.0] * n_variants) # nonzero barcodes    
-    
+    H = np.array(H)
+    C = np.array(C)
+    T = np.array(T)
     traceback = np.zeros((n_barcodes,ploidy),dtype=np.dtype("int32")) 
     #column number of prev. row that up-arrow points to
+    '''
     n_seen = [0] * n_barcodes
     barcode_haplotypes = [0] * n_barcodes
     barcode_concord = [0] * n_barcodes
-    variant_haplotypes = [0] * n_variants
+    '''
+    n_seen = np.zeros(n_barcodes,dtype=np.int)
+    barcode_haplotypes = np.zeros(n_barcodes,dtype=np.int)
+    barcode_concord = np.zeros(n_barcodes,dtype=np.int)
 
     curr_bc = 0
     stop = 0
@@ -442,18 +490,17 @@ def get_haplotypes_polyploid(variant_matrix,ploidy):
         #iterate through barcodes
        
         #copy all data structures for each case in this row
-
-        H_all_tmp = []
-        C_all_tmp = []
-        T_all_tmp = []
-        for p in range(ploidy):
-            H_all_tmp.append(copy.deepcopy(H))
-            C_all_tmp.append(copy.deepcopy(C))
-            T_all_tmp.append(copy.deepcopy(T))
-            
+        H_all_tmp = np.array([np.copy(H) for p in range(ploidy)])
+        C_all_tmp = np.array([np.copy(C) for p in range(ploidy)])
+        T_all_tmp = np.array([np.copy(T) for p in range(ploidy)])
+        
+        #H_all_tmp = [copy.deepcopy(H) for p in range(ploidy)]
+        #C_all_tmp = [copy.deepcopy(C) for p in range(ploidy)]
+        #T_all_tmp = [copy.deepcopy(T) for p in range(ploidy)]
+        
         #net change to concordance
         #rows = cases; cols = possible prev cells 
-        chg = [[0.0 for i in range(ploidy)] for p in range(ploidy)]
+        chg = np.array([[0.0 for i in range(ploidy)] for p in range(ploidy)])
         
         while stop < len(nonzero[0]) and nonzero[0][stop] == curr_bc:
             #iterate through variants
@@ -528,5 +575,5 @@ def get_haplotypes_polyploid(variant_matrix,ploidy):
 
             stop += 1   
         curr_bc += 1
-
+    barcode_haplotypes = np.zeros(n_barcodes) #for testing because with ploidy>2, there would be non- 0/1 values in vector
     return (barcode_haplotypes, barcode_concord, variant_haplotypes, variant_concord, n_seen)
